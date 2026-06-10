@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Frond — Oil Palm & Polybag Counter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
+<style>
+  :root{
+    --soil:#0d0f0b; --panel:#15180f; --panel-2:#1c2014; --line:#2c3320;
+    --ink:#ece9dc; --muted:#8d937c; --ffb:#e8551f; --frond:#7cab4f; --frond-dim:#4d6b34;
+    --radius:4px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--soil);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;
+    line-height:1.45;min-height:100vh}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 60px}
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:24px}
+  .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .brand h1{font-size:30px;font-weight:700;letter-spacing:-0.5px}
+  .brand h1 .leaf{color:var(--frond)}
+  .brand .tag{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:2px}
+  header p{color:var(--muted);font-size:14px;margin-top:8px;max-width:62ch}
+  .grid{display:grid;grid-template-columns:330px 1fr;gap:22px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .panel h2{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;margin-bottom:14px;font-weight:500}
+  /* drop zone */
+  .drop{border:1.5px dashed var(--frond-dim);border-radius:var(--radius);padding:26px 16px;text-align:center;
+    cursor:pointer;transition:.15s;background:var(--panel-2)}
+  .drop:hover,.drop.hot{border-color:var(--frond);background:#1f2616}
+  .drop .big{font-size:14px;font-weight:500}
+  .drop .small{font-size:12px;color:var(--muted);margin-top:6px}
+  .drop .fname{color:var(--frond);font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:8px;word-break:break-all}
+  input[type=file]{display:none}
+  /* mode toggle */
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-top:16px}
+  .seg button{flex:1;background:transparent;color:var(--muted);border:0;padding:11px 6px;font-family:inherit;
+    font-size:13px;cursor:pointer;transition:.12s}
+  .seg button.on{background:var(--frond-dim);color:var(--ink);font-weight:500}
+  /* fields */
+  .field{margin-top:16px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .field input[type=number]{width:100%;background:var(--soil);border:1px solid var(--line);color:var(--ink);
+    padding:9px 10px;border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:13px}
+  .field input[type=range]{width:100%;accent-color:var(--ffb)}
+  .rowval{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
+  details{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+  summary{cursor:pointer;font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;
+    text-transform:uppercase;letter-spacing:1px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:'+ ';color:var(--frond)}
+  details[open] summary::before{content:'– '}
+  .hint{font-size:11px;color:var(--muted);margin-top:8px;font-style:italic}
+  .go{width:100%;margin-top:20px;background:var(--ffb);color:#fff;border:0;padding:13px;border-radius:var(--radius);
+    font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:.12s}
+  .go:hover{filter:brightness(1.08)}
+  .go:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
+  .status{margin-top:12px;font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--muted);min-height:16px}
+  /* stage */
+  .stage{display:flex;flex-direction:column;gap:18px}
+  .readout{display:grid;grid-template-columns:auto 1fr;gap:0 24px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px}
+  .count{font-family:'IBM Plex Mono',monospace;font-size:64px;font-weight:600;color:var(--ffb);line-height:1;
+    letter-spacing:-2px}
+  .count .lbl{display:block;font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;
+    font-weight:500;margin-top:8px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;font-size:13px}
+  .stats div span{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;
+    font-family:'IBM Plex Mono',monospace}
+  .stats div b{font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:15px}
+  .canvaswrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;
+    position:relative;overflow:hidden}
+  canvas{width:100%;height:auto;display:block;border-radius:2px;background:var(--soil)}
+  .empty{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;text-align:center;padding:20px}
+  .downloads{display:flex;gap:10px;flex-wrap:wrap}
+  .dl{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);padding:10px 14px;border-radius:var(--radius);
+    font-family:'IBM Plex Mono',monospace;font-size:12px;cursor:pointer;transition:.12s;text-decoration:none}
+  .dl:hover{border-color:var(--frond);color:var(--frond)}
+  .dl:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
+  footer{margin-top:34px;border-top:1px solid var(--line);padding-top:16px;font-size:11px;color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Frond<span class="leaf">.</span></h1>
+      <span class="tag">oil palm + polybag counter</span>
+    </div>
+    <p>Upload a drone map — GeoTIFF, TIFF, JPG or PNG — and count it in your browser. Nothing is uploaded to any
+       server; the map and the report stay on your machine.</p>
+  </header>
+
+  <div class="grid">
+    <!-- CONTROL RAIL -->
+    <div class="panel">
+      <h2>1 · Map</h2>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".tif,.tiff,.jpg,.jpeg,.png" />
+        <div class="big">Drop a map here</div>
+        <div class="small">or click to browse · GeoTIFF / TIFF / JPG / PNG</div>
+        <div class="fname" id="fname"></div>
+      </label>
+
+      <label class="drop" id="dropkml" style="margin-top:12px;padding:16px">
+        <input type="file" id="kml" accept=".kml" />
+        <div class="big" style="font-size:13px">Boundary (KML) — optional</div>
+        <div class="small">counts only palms inside your block</div>
+        <div class="fname" id="kmlname"></div>
+      </label>
+
+      <h2 style="margin-top:22px">2 · What am I counting</h2>
+      <div class="seg" id="seg">
+        <button data-mode="palm" class="on">Plantation palms</button>
+        <button data-mode="polybag">Nursery polybags</button>
+      </div>
+
+      <details>
+        <summary>Calibration (optional)</summary>
+        <div class="field">
+          <label>Ground sampling distance — cm per pixel</label>
+          <input type="number" id="gsd" min="0" step="0.1" placeholder="e.g. 5  (from drone report)" />
+        </div>
+        <div class="field">
+          <label>Planting spacing — metres</label>
+          <input type="number" id="spacing" min="0" step="0.1" placeholder="palm ≈ 9 · polybag ≈ 0.75" />
+        </div>
+        <p class="hint">Leave blank and Frond estimates the spacing from the map itself.</p>
+      </details>
+
+      <div class="field">
+        <label>Detection sensitivity</label>
+        <input type="range" id="thr" min="0.25" max="0.65" step="0.01" value="0.45" />
+        <div class="rowval"><span>more (catches fainter green)</span><span id="thrv">0.45</span></div>
+      </div>
+
+      <div class="field">
+        <label>Detail — working resolution</label>
+        <select id="detail" style="width:100%;background:var(--soil);border:1px solid var(--line);color:var(--ink);
+          padding:9px 10px;border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:13px">
+          <option value="2200">Standard · 2200px — fast (palms)</option>
+          <option value="4000" selected>High · 4000px — balanced</option>
+          <option value="6500">Max · 6500px — dense nursery (slow)</option>
+        </select>
+        <p class="hint">Nursery polybags sit close together — use High or Max so they don't merge.</p>
+      </div>
+
+      <button class="go" id="go" disabled>Count</button>
+      <div class="status" id="status">Waiting for a map.</div>
+    </div>
+
+    <!-- STAGE -->
+    <div class="stage">
+      <div class="readout">
+        <div class="count" id="count">—<span class="lbl" id="countlbl">palms</span></div>
+        <div class="stats">
+          <div><span>Mapped area</span><b id="s-area">—</b></div>
+          <div><span>Density / ha</span><b id="s-dens">—</b></div>
+          <div><span>Georeferenced</span><b id="s-geo">—</b></div>
+          <div><span>Working res</span><b id="s-res">—</b></div>
+        </div>
+      </div>
+
+      <div class="canvaswrap" id="cwrap">
+        <div class="empty" id="empty">The annotated map appears here once you run a count.</div>
+        <canvas id="cv" style="display:none"></canvas>
+      </div>
+
+      <div>
+        <h2 style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);
+          text-transform:uppercase;margin-bottom:10px">3 · Report — save to your local storage</h2>
+        <div class="downloads">
+          <button class="dl" id="dl-report" disabled>Download report (HTML)</button>
+          <button class="dl" id="dl-png" disabled>Annotated map (PNG)</button>
+          <button class="dl" id="dl-csv" disabled>Points (CSV)</button>
+          <button class="dl" id="dl-geojson" disabled>Points (GeoJSON)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Frond runs entirely in your browser — no data leaves this page.
+    Green-detection works best on well-separated mature palms and tidy nursery rows; it can under-count where
+    canopies overlap heavily or weeds are as green as the crop. Big maps are downsampled for speed and the count
+    is scaled back to full resolution. A GeoTIFF gives real coordinates per palm; plain images give pixel positions.
+  </footer>
+</div>
+
+<script>
+/* ============================ detection core (validated) ============================ */
+function normalizeExG(rgba, w, h){
+  const n=w*h, exg=new Float32Array(n); let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<n;i++){
+    const a=rgba[i*4+3];
+    if(a===0){ exg[i]=-1; continue; }           // transparent border = no vegetation
+    const r=rgba[i*4],g=rgba[i*4+1],b=rgba[i*4+2];
+    const t=r+g+b+1e-6;
+    const v=2*(g/t)-(r/t)-(b/t);
+    exg[i]=v; if(v<mn)mn=v; if(v>mx)mx=v;
+  }
+  const rng=(mx-mn)||1e-6;
+  for(let i=0;i<n;i++){ exg[i]= exg[i]===-1 ? 0 : (exg[i]-mn)/rng; }
+  return exg;
+}
+function boxBlur(src,w,h,radius,passes){
+  let a=Float32Array.from(src), b=new Float32Array(w*h);
+  for(let p=0;p<passes;p++){
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0,c=0;
+      for(let k=-radius;k<=radius;k++){const xx=x+k;if(xx>=0&&xx<w){s+=a[y*w+xx];c++;}}
+      b[y*w+x]=s/c;}
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0,c=0;
+      for(let k=-radius;k<=radius;k++){const yy=y+k;if(yy>=0&&yy<h){s+=b[yy*w+x];c++;}}
+      a[y*w+x]=s/c;}
+  }
+  return a;
+}
+function detect(rgba,w,h,opt){
+  const minDist=opt.minDist, threshold=opt.threshold;
+  const exg=normalizeExG(rgba,w,h);
+  const radius=Math.max(2,Math.round(minDist*0.35));
+  const sm=boxBlur(exg,w,h,radius,3);
+  const cands=[];
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;
+    if(exg[i]<threshold)continue;
+    const v=sm[i];let isMax=true;
+    for(let dy=-1;dy<=1&&isMax;dy++)for(let dx=-1;dx<=1;dx++){
+      if(dx||dy){if(sm[(y+dy)*w+(x+dx)]>v){isMax=false;break;}}}
+    if(isMax)cands.push([v,x,y]);
+  }
+  cands.sort((a,b)=>b[0]-a[0]);
+  const cell=Math.max(1,minDist),grid=new Map(),key=(a,b)=>a+','+b,out=[];
+  const md2=minDist*minDist;
+  for(const [v,x,y] of cands){
+    const cx=Math.floor(x/cell),cy=Math.floor(y/cell);let ok=true;
+    for(let gx=cx-1;gx<=cx+1&&ok;gx++)for(let gy=cy-1;gy<=cy+1;gy++){
+      const arr=grid.get(key(gx,gy));if(!arr)continue;
+      for(const [ax,ay] of arr){const dx=ax-x,dy=ay-y;if(dx*dx+dy*dy<md2){ok=false;break;}}}
+    if(ok){out.push([x,y]);const k=key(cx,cy);if(!grid.has(k))grid.set(k,[]);grid.get(k).push([x,y]);}
+  }
+  return out;
+}
+function estimateSpacingPx(exg,w,h,threshold){
+  // autocorrelation of row/column vegetation profiles -> dominant planting interval
+  const colSum=new Float32Array(w), rowSum=new Float32Array(h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){ if(exg[y*w+x]>threshold){colSum[x]++;rowSum[y]++;} }
+  function period(p){
+    const n=p.length; let mean=0; for(const v of p)mean+=v; mean/=n;
+    const d=p.map(v=>v-mean); const ac=new Float32Array(n);
+    for(let lag=0;lag<n;lag++){let s=0;for(let i=0;i<n-lag;i++)s+=d[i]*d[i+lag];ac[lag]=s;}
+    let mx=0;for(let i=1;i<n;i++)if(ac[i]>mx)mx=ac[i];
+    for(let i=2;i<n-1;i++)if(ac[i]>ac[i-1]&&ac[i]>=ac[i+1]&&ac[i]>0.3*mx)return i;
+    return null;
+  }
+  const c=period(colSum),r=period(rowSum),cands=[c,r].filter(v=>v);
+  if(!cands.length)return null;
+  cands.sort((a,b)=>a-b); return cands[Math.floor(cands.length/2)];
+}
+
+/* ============================ state + DOM ============================ */
+const PRESET={palm:{spacing:9,word:'palms'},polybag:{spacing:0.75,word:'polybags'}};
+let mode='palm', loaded=null, result=null, currentFile=null;
+const $=id=>document.getElementById(id);
+const workmax=()=>parseInt($('detail').value,10);  // longest side used for detection
+
+$('thr').addEventListener('input',e=>$('thrv').textContent=(+e.target.value).toFixed(2));
+$('seg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  mode=b.dataset.mode;
+  [...$('seg').children].forEach(x=>x.classList.toggle('on',x===b));
+  $('countlbl').textContent=PRESET[mode].word;
+});
+
+/* drag + drop */
+const drop=$('drop');
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hot');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hot');}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)handleFile(f);});
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(f)handleFile(f);});
+
+/* boundary (KML) */
+let boundary=null;                       // array of polygons, each [[lon,lat],...]
+const dropk=$('dropkml');
+['dragover','dragenter'].forEach(ev=>dropk.addEventListener(ev,e=>{e.preventDefault();dropk.classList.add('hot');}));
+['dragleave','drop'].forEach(ev=>dropk.addEventListener(ev,e=>{e.preventDefault();dropk.classList.remove('hot');}));
+dropk.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)handleKML(f);});
+$('kml').addEventListener('change',e=>{const f=e.target.files[0];if(f)handleKML(f);});
+
+function handleKML(file){
+  if(/\.kmz$/i.test(file.name)){ setStatus('KMZ is zipped — please export/unzip to a plain .kml file.'); return; }
+  const fr=new FileReader();
+  fr.onload=()=>{
+    boundary=parseKML(fr.result);
+    if(boundary&&boundary.length){ $('kmlname').textContent=file.name+' · '+boundary[0].length+' points';
+      setStatus('Boundary loaded — counting will be clipped to it.'); }
+    else { boundary=null; $('kmlname').textContent='no polygon found in this KML'; }
+  };
+  fr.readAsText(file);
+}
+function parseKML(text){
+  let doc; try{ doc=new DOMParser().parseFromString(text,'application/xml'); }catch(e){ return null; }
+  const ringFrom=el=>el.textContent.trim().split(/\s+/)
+      .map(t=>{const a=t.split(',');return [parseFloat(a[0]),parseFloat(a[1])];})
+      .filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  const polys=[];
+  const polyEls=doc.getElementsByTagName('Polygon');
+  if(polyEls.length){
+    for(const pe of polyEls){
+      const ob=pe.getElementsByTagName('outerBoundaryIs')[0]||pe;
+      const ce=ob.getElementsByTagName('coordinates')[0];
+      if(ce){const r=ringFrom(ce); if(r.length>=3)polys.push(r);}
+    }
+  } else {
+    for(const ce of doc.getElementsByTagName('coordinates')){const r=ringFrom(ce); if(r.length>=3)polys.push(r);}
+  }
+  return polys.length?polys:null;
+}
+/* proj4 definition for the raster's CRS (handles WGS84 lat/lon and UTM) */
+function rasterProjDef(crs){
+  if(!crs) return null;
+  const m=/(\d{4,5})/.exec(crs); if(!m) return null;
+  const c=+m[1];
+  if(c===4326||c===4269||c===4258) return 'EPSG:4326';
+  if(c>=32601&&c<=32660) return '+proj=utm +zone='+(c-32600)+' +datum=WGS84 +units=m +no_defs';
+  if(c>=32701&&c<=32760) return '+proj=utm +zone='+(c-32700)+' +south +datum=WGS84 +units=m +no_defs';
+  return null;                            // unknown CRS — caller will warn
+}
+function pointInPolys(pt,polys){
+  for(const poly of polys){
+    let c=false;
+    for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+      const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
+      if(((yi>pt[1])!=(yj>pt[1])) && (pt[0]<(xj-xi)*(pt[1]-yi)/(yj-yi)+xi)) c=!c;
+    }
+    if(c) return true;
+  }
+  return false;
+}
+
+function setStatus(t){$('status').textContent=t;}
+
+async function handleFile(file){
+  currentFile=file;
+  $('fname').textContent=file.name;
+  $('go').disabled=true; setStatus('Reading map…');
+  try{
+    loaded=await readMap(file);
+    setStatus('Map ready — '+loaded.fullW+'×'+loaded.fullH+'px → working '+loaded.w+'×'+loaded.h
+      +(loaded.geo?' · georeferenced':' · no coordinates'));
+    $('go').disabled=false;
+  }catch(err){
+    console.error(err);
+    setStatus('Could not read this map. If it is very large, see the size note — or export a Cloud-Optimized GeoTIFF.');
+    loaded=null;
+  }
+}
+$('detail').addEventListener('change',()=>{ if(currentFile) handleFile(currentFile); });
+
+/* ---- read either a GeoTIFF or a normal image into a working-size RGBA buffer ---- */
+async function readMap(file){
+  const ext=(file.name.split('.').pop()||'').toLowerCase();
+  if(ext==='tif'||ext==='tiff'){ return await readGeoTIFF(file); }
+  return await readImage(file);
+}
+
+async function readGeoTIFF(file){
+  // fromBlob reads the file lazily (byte ranges) instead of loading it all into memory
+  const tiff=await GeoTIFF.fromBlob(file);
+  const base=await tiff.getImage(0);
+  const fullW=base.getWidth(), fullH=base.getHeight();
+  const WM=workmax();
+  const scale=Math.min(1,WM/Math.max(fullW,fullH));
+  const w=Math.max(1,Math.round(fullW*scale)), h=Math.max(1,Math.round(fullH*scale));
+  const bands=Math.min(base.getSamplesPerPixel(),3);
+  const samples=bands>=3?[0,1,2]:[0];
+  // if the file has internal overviews (a Cloud-Optimized GeoTIFF), read the
+  // smallest level still >= our working width — this avoids decoding full resolution
+  let img=base;
+  try{
+    const n=await tiff.getImageCount(); let bestW=fullW;
+    for(let i=0;i<n;i++){ const im=await tiff.getImage(i); const iw=im.getWidth();
+      if(iw>=w && iw<=bestW){bestW=iw; img=im;} }
+  }catch(e){}
+  const data=await img.readRasters({width:w,height:h,samples,interleave:true});
+  let max=0; for(let i=0;i<data.length;i++) if(data[i]>max)max=data[i];
+  const k=max>255?255/max:1;
+  const rgba=new Uint8ClampedArray(w*h*4);
+  for(let i=0;i<w*h;i++){
+    if(bands>=3){rgba[i*4]=data[i*3]*k;rgba[i*4+1]=data[i*3+1]*k;rgba[i*4+2]=data[i*3+2]*k;}
+    else{const v=data[i]*k;rgba[i*4]=v;rgba[i*4+1]=v;rgba[i*4+2]=v;}
+    rgba[i*4+3]=255;
+  }
+  let geo=null;
+  try{
+    const origin=base.getOrigin(), res=base.getResolution(), bbox=base.getBoundingBox();
+    let crs=null;
+    const gk=base.getGeoKeys?base.getGeoKeys():base.geoKeys;
+    if(gk){ const code=gk.ProjectedCSTypeGeoKey||gk.GeographicTypeGeoKey;
+      if(code) crs='EPSG:'+code; }
+    geo={origin,res,bbox,crs};
+  }catch(e){geo=null;}
+  return {rgba,w,h,fullW,fullH,scale,geo};
+}
+
+function readImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const fullW=img.naturalWidth,fullH=img.naturalHeight;
+      const scale=Math.min(1,workmax()/Math.max(fullW,fullH));
+      const w=Math.max(1,Math.round(fullW*scale)),h=Math.max(1,Math.round(fullH*scale));
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);
+      const rgba=ctx.getImageData(0,0,w,h).data;
+      URL.revokeObjectURL(img.src);
+      resolve({rgba:new Uint8ClampedArray(rgba),w,h,fullW,fullH,scale,geo:null});
+    };
+    img.onerror=()=>reject(new Error('image decode failed'));
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+/* ============================ run ============================ */
+$('go').addEventListener('click',()=>{ if(loaded) setTimeout(run,30); setStatus('Counting…'); });
+
+function run(){
+  const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
+  const thr=+$('thr').value;
+  const gsd=parseFloat($('gsd').value)||0;
+  const spacingIn=parseFloat($('spacing').value)||0;
+
+  // work-pixel minimum distance between two plants
+  let workMinDist, src;
+  if(gsd>0){
+    const sp=spacingIn>0?spacingIn:PRESET[mode].spacing;
+    const fullMinDist=(sp*100)/gsd*0.6;
+    workMinDist=Math.max(3,fullMinDist*scale);
+    src='gsd '+gsd+'cm/px, spacing '+sp+'m';
+  }else{
+    const est=estimateSpacingPx(normalizeExG(rgba,w,h),w,h,thr);
+    if(est){workMinDist=Math.max(3,est*0.6);src='auto spacing ~'+Math.round(est/scale)+'px';}
+    else{workMinDist=mode==='palm'?28:8;src='default';}
+  }
+
+  const ptsAll=detect(rgba,w,h,{minDist:workMinDist,threshold:thr});
+  const fullAll=ptsAll.map(([x,y])=>[x/scale,y/scale]);
+  const coordsAll=(geo&&geo.origin&&geo.res)
+    ? fullAll.map(([px,py])=>[geo.origin[0]+px*geo.res[0], geo.origin[1]+py*geo.res[1]]) : null;
+
+  // ---- clip to KML boundary (if provided) ----
+  let clipped=false, clipMsg='', boundaryPx=null, boundaryHa=null;
+  if(boundary){
+    if(!(geo&&geo.origin&&geo.res)){
+      clipMsg='Boundary ignored — needs a georeferenced GeoTIFF (JPG/PNG have no coordinates).';
+    } else {
+      const def=rasterProjDef(geo.crs);
+      if(!def){
+        clipMsg='Map CRS '+(geo.crs||'(unknown)')+' not recognised — tell me the EPSG code and I will add it. Counted whole map.';
+      } else {
+        const metric = def!=='EPSG:4326';
+        const workPolys=[], worldPolys=[];
+        for(const poly of boundary){
+          const wp=[], wo=[];
+          for(const [lon,lat] of poly){
+            let X,Y;
+            if(metric){const o=proj4('EPSG:4326',def,[lon,lat]);X=o[0];Y=o[1];}else{X=lon;Y=lat;}
+            wo.push([X,Y]);
+            wp.push([ (X-geo.origin[0])/geo.res[0]*scale, (Y-geo.origin[1])/geo.res[1]*scale ]);
+          }
+          workPolys.push(wp); worldPolys.push(wo);
+        }
+        boundaryPx=workPolys; clipped=true;
+        if(metric){ boundaryHa=0; for(const wo of worldPolys){let a=0;
+          for(let i=0,j=wo.length-1;i<wo.length;j=i++){a+=wo[j][0]*wo[i][1]-wo[i][0]*wo[j][1];}
+          boundaryHa+=Math.abs(a/2)/10000; } }
+      }
+    }
+  }
+  const keep=[]; ptsAll.forEach((p,i)=>{ if(!clipped||pointInPolys(p,boundaryPx))keep.push(i); });
+  const pts=keep.map(i=>ptsAll[i]);
+  const full=keep.map(i=>fullAll[i]);
+  const coords=coordsAll?keep.map(i=>coordsAll[i]):null;
+
+  // area + density
+  let areaHa=null;
+  const geographic = geo&&geo.crs&&/4326|4269|4258/.test(geo.crs);
+  if(clipped&&boundaryHa){ areaHa=boundaryHa; }
+  else if(geo&&geo.bbox&&!geographic){
+    const m2=Math.abs((geo.bbox[2]-geo.bbox[0])*(geo.bbox[3]-geo.bbox[1]));
+    if(m2>0&&m2<1e12) areaHa=m2/10000;
+  }else if(gsd>0){ areaHa=(fullW*fullH*Math.pow(gsd/100,2))/10000; }
+
+  result={count:pts.length,pts,full,coords,areaHa,geo,fullW,fullH,w,h,scale,mode,
+          density:areaHa?pts.length/areaHa:null,src,thr,clipped,clipMsg,boundaryPx};
+  render();
+}
+
+function render(){
+  const r=result;
+  $('count').innerHTML=r.count+'<span class="lbl">'+PRESET[r.mode].word+'</span>';
+  $('s-area').textContent=r.areaHa?r.areaHa.toFixed(2)+' ha':'—';
+  $('s-dens').textContent=r.density?r.density.toFixed(1):'—';
+  $('s-geo').textContent=r.geo?(r.geo.crs||'yes'):'no';
+  $('s-res').textContent=r.w+'×'+r.h+'px';
+
+  // draw overlay
+  const cv=$('cv'),ctx=cv.getContext('2d');
+  cv.width=r.w;cv.height=r.h;
+  const img=ctx.createImageData(r.w,r.h);
+  img.data.set(loaded.rgba);ctx.putImageData(img,0,0);
+
+  if(r.boundaryPx){
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0,0,r.w,r.h);
+    for(const poly of r.boundaryPx){ctx.moveTo(poly[0][0],poly[0][1]);
+      for(let k=1;k<poly.length;k++)ctx.lineTo(poly[k][0],poly[k][1]); ctx.closePath();}
+    ctx.fillStyle='rgba(13,15,11,0.58)'; ctx.fill('evenodd');
+    ctx.lineWidth=Math.max(1.5,r.w/520); ctx.strokeStyle='#ffd400';
+    for(const poly of r.boundaryPx){ctx.beginPath();ctx.moveTo(poly[0][0],poly[0][1]);
+      for(let k=1;k<poly.length;k++)ctx.lineTo(poly[k][0],poly[k][1]); ctx.closePath(); ctx.stroke();}
+    ctx.restore();
+  }
+
+  ctx.strokeStyle='#e8551f';ctx.lineWidth=Math.max(1.2,r.w/700);
+  const rad=Math.max(3,Math.min(9,r.w/220));
+  for(const [x,y] of r.pts){ctx.beginPath();ctx.arc(x,y,rad,0,7);ctx.stroke();}
+  $('empty').style.display='none';cv.style.display='block';
+
+  ['dl-report','dl-png','dl-csv'].forEach(id=>$(id).disabled=false);
+  $('dl-geojson').disabled=!(r.geo&&r.geo.crs);
+  let msg='Done — '+r.count+' '+PRESET[r.mode].word+(r.clipped?' inside boundary':'')+' ('+r.src+').';
+  if(r.clipMsg) msg+=' ⚠ '+r.clipMsg;
+  setStatus(msg);
+}
+
+/* ============================ downloads ============================ */
+function stamp(){const d=new Date();return d.toISOString().slice(0,10);}
+function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+
+$('dl-csv').addEventListener('click',()=>{
+  const r=result,geo=r.coords;
+  let csv='id,pixel_x,pixel_y'+(geo?',x,y':'')+'\n';
+  r.full.forEach(([x,y],i)=>{csv+=(i+1)+','+Math.round(x)+','+Math.round(y)
+    +(geo?(','+geo[i][0].toFixed(3)+','+geo[i][1].toFixed(3)):'')+'\n';});
+  save(new Blob([csv],{type:'text/csv'}),'frond_'+r.mode+'_'+stamp()+'_points.csv');
+});
+
+$('dl-geojson').addEventListener('click',()=>{
+  const r=result;if(!r.coords)return;
+  const feats=r.coords.map((c,i)=>({type:'Feature',properties:{id:i+1},
+    geometry:{type:'Point',coordinates:[c[0],c[1]]}}));
+  const fc={type:'FeatureCollection',crs:{type:'name',properties:{name:r.geo.crs}},features:feats};
+  save(new Blob([JSON.stringify(fc)],{type:'application/json'}),'frond_'+r.mode+'_'+stamp()+'_points.geojson');
+});
+
+$('dl-png').addEventListener('click',()=>{
+  $('cv').toBlob(b=>save(b,'frond_'+result.mode+'_'+stamp()+'_map.png'),'image/png');
+});
+
+$('dl-report').addEventListener('click',()=>{
+  const r=result;const png=$('cv').toDataURL('image/png');
+  const row=(k,v)=>'<tr><th>'+k+'</th><td>'+v+'</td></tr>';
+  const html='<!DOCTYPE html><meta charset="utf-8"><title>Frond report — '+r.mode+' '+stamp()+'</title>'
+   +'<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:30px auto;padding:0 20px;color:#1a1a1a}'
+   +'h1{font-size:22px}.c{font-size:46px;color:#e8551f;font-weight:700;margin:4px 0}'
+   +'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:7px 12px;text-align:left;font-size:14px}'
+   +'th{background:#f4f4f0;width:200px}img{max-width:100%;border:1px solid #ccc;margin-top:10px}'
+   +'small{color:#777}</style>'
+   +'<h1>Frond — '+(r.mode==='palm'?'Oil palm plantation':'Nursery polybag')+' count</h1>'
+   +'<div class="c">'+r.count+' '+PRESET[r.mode].word+'</div>'
+   +'<table>'
+   +row('Date',new Date().toLocaleString())
+   +row('Mapped area',r.areaHa?r.areaHa.toFixed(2)+' ha':'not available')
+   +row('Density',r.density?r.density.toFixed(1)+' / ha':'not available')
+   +row('Georeferenced',r.geo?(r.geo.crs||'yes'):'no')
+   +row('Counted within boundary',r.clipped?'yes — clipped to KML':'no — whole map')
+   +row('Source resolution',r.fullW+' × '+r.fullH+' px')
+   +row('Detection setting',r.src+', sensitivity '+r.thr.toFixed(2))
+   +'</table>'
+   +'<img src="'+png+'" alt="annotated map">'
+   +'<p><small>Generated by Frond in-browser. Counts are estimates from canopy greenness.</small></p>';
+  save(new Blob([html],{type:'text/html'}),'frond_'+r.mode+'_'+stamp()+'_report.html');
+});
+</script>
+</body>
+</html>
