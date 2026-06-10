@@ -52,7 +52,7 @@
   /* fields */
   .field{margin-top:16px}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  .field input[type=number]{width:100%;background:var(--soil);border:1px solid var(--line);color:var(--ink);
+  .field input[type=number],.field input[type=text]{width:100%;background:var(--soil);border:1px solid var(--line);color:var(--ink);
     padding:9px 10px;border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:13px}
   .field input[type=range]{width:100%;accent-color:var(--ffb)}
   .rowval{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)}
@@ -104,8 +104,9 @@
         <span class="tag">Drone Imagery Analysis</span>
       </div>
     </div>
-    <p>Upload a drone map — GeoTIFF, TIFF, JPG or PNG — and count it in your browser. Nothing is uploaded to any
-       server; the map and the report stay on your machine.</p>
+    <p>Upload a drone map — GeoTIFF, TIFF, JPG or PNG — and count it. In <b>Local</b> mode everything runs in your
+       browser and nothing is uploaded. In <b>AI</b> mode, image tiles are sent to your own Gemini proxy for higher
+       accuracy on dense maps.</p>
   </header>
 
   <div class="grid">
@@ -131,6 +132,27 @@
         <button data-mode="palm" class="on">Plantation palms</button>
         <button data-mode="polybag">Nursery polybags</button>
       </div>
+
+      <h2 style="margin-top:22px">3 · Counting engine</h2>
+      <div class="seg" id="engineseg">
+        <button data-engine="local" class="on">Local · free</button>
+        <button data-engine="ai">AI · Gemini</button>
+      </div>
+      <p class="hint" id="enginehint">Local greenness detection — fast, offline, best for well-spaced plantation palms.</p>
+
+      <details id="aibox" style="display:none">
+        <summary>AI settings (Gemini)</summary>
+        <div class="field">
+          <label>Proxy endpoint URL</label>
+          <input type="text" id="aiurl" placeholder="https://your-worker.workers.dev" />
+        </div>
+        <div class="field">
+          <label>Access token (if your proxy requires one)</label>
+          <input type="text" id="aitoken" placeholder="optional" />
+        </div>
+        <p class="hint">Your Gemini API key stays on the proxy server — it is never sent to the browser.
+          See AI-SETUP.md to deploy the proxy.</p>
+      </details>
 
       <details>
         <summary>Calibration (optional)</summary>
@@ -185,7 +207,7 @@
 
       <div>
         <h2 style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);
-          text-transform:uppercase;margin-bottom:10px">3 · Report — save to your local storage</h2>
+          text-transform:uppercase;margin-bottom:10px">4 · Report — save to your local storage</h2>
         <div class="downloads">
           <button class="dl" id="dl-report" disabled>Download report (HTML)</button>
           <button class="dl" id="dl-png" disabled>Annotated map (PNG)</button>
@@ -197,7 +219,8 @@
   </div>
 
   <footer>
-    MJM AI · DIA runs entirely in your browser — no data leaves this page.
+    MJM AI · DIA — Local counting runs entirely in your browser; AI mode sends image tiles to your own Gemini
+    proxy for higher accuracy on dense maps.
     Green-detection works best on well-separated mature palms and tidy nursery rows; it can under-count where
     canopies overlap heavily or weeds are as green as the crop. Big maps are downsampled for speed and the count
     is scaled back to full resolution. A GeoTIFF gives real coordinates per palm; plain images give pixel positions.
@@ -287,6 +310,28 @@ $('seg').addEventListener('click',e=>{
   [...$('seg').children].forEach(x=>x.classList.toggle('on',x===b));
   $('countlbl').textContent=PRESET[mode].word;
 });
+
+/* counting engine: local greenness (free, offline) vs AI (Gemini via proxy) */
+let engine='local';
+$('engineseg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  engine=b.dataset.engine;
+  [...$('engineseg').children].forEach(x=>x.classList.toggle('on',x===b));
+  const ai=engine==='ai';
+  $('aibox').style.display=ai?'block':'none';
+  if(ai)$('aibox').open=true;
+  $('enginehint').textContent=ai
+    ? 'Sends image tiles to your Gemini proxy and counts each, then sums — higher accuracy for dense nursery polybags. Uses your API quota.'
+    : 'Local greenness detection — fast, offline, best for well-spaced plantation palms.';
+});
+/* AI proxy settings persist locally so they survive reloads */
+const AI_URL_KEY='dia_ai_url', AI_TOK_KEY='dia_ai_token';
+$('aiurl').value=localStorage.getItem(AI_URL_KEY)||'';
+$('aitoken').value=localStorage.getItem(AI_TOK_KEY)||'';
+$('aiurl').addEventListener('change',()=>localStorage.setItem(AI_URL_KEY,$('aiurl').value.trim()));
+$('aitoken').addEventListener('change',()=>localStorage.setItem(AI_TOK_KEY,$('aitoken').value.trim()));
+const aiEndpoint=()=>($('aiurl').value||'').trim();
+const aiToken=()=>($('aitoken').value||'').trim();
 
 /* drag + drop */
 const drop=$('drop');
@@ -438,7 +483,49 @@ function readImage(file){
 }
 
 /* ============================ run ============================ */
-$('go').addEventListener('click',()=>{ if(loaded) setTimeout(run,30); setStatus('Counting…'); });
+$('go').addEventListener('click',()=>{
+  if(!loaded) return;
+  if(engine==='ai'){
+    setStatus('Counting with AI…');
+    setTimeout(()=>{ runAI().catch(err=>{ console.error(err); setStatus('AI error: '+err.message); }); },30);
+  } else {
+    setStatus('Counting…');
+    setTimeout(run,30);
+  }
+});
+
+/* shared: reproject a KML boundary into working pixels + compute its area (ha) */
+function clipToBoundary(geo,scale){
+  let clipped=false, clipMsg='', boundaryPx=null, boundaryHa=null;
+  if(boundary){
+    if(!(geo&&geo.origin&&geo.res)){
+      clipMsg='Boundary ignored — needs a georeferenced GeoTIFF (JPG/PNG have no coordinates).';
+    } else {
+      const def=rasterProjDef(geo.crs);
+      if(!def){
+        clipMsg='Map CRS '+(geo.crs||'(unknown)')+' not recognised — tell me the EPSG code and I will add it. Counted whole map.';
+      } else {
+        const metric = def!=='EPSG:4326';
+        const workPolys=[], worldPolys=[];
+        for(const poly of boundary){
+          const wp=[], wo=[];
+          for(const [lon,lat] of poly){
+            let X,Y;
+            if(metric){const o=proj4('EPSG:4326',def,[lon,lat]);X=o[0];Y=o[1];}else{X=lon;Y=lat;}
+            wo.push([X,Y]);
+            wp.push([ (X-geo.origin[0])/geo.res[0]*scale, (Y-geo.origin[1])/geo.res[1]*scale ]);
+          }
+          workPolys.push(wp); worldPolys.push(wo);
+        }
+        boundaryPx=workPolys; clipped=true;
+        if(metric){ boundaryHa=0; for(const wo of worldPolys){let a=0;
+          for(let i=0,j=wo.length-1;i<wo.length;j=i++){a+=wo[j][0]*wo[i][1]-wo[i][0]*wo[j][1];}
+          boundaryHa+=Math.abs(a/2)/10000; } }
+      }
+    }
+  }
+  return {clipped,clipMsg,boundaryPx,boundaryHa};
+}
 
 function run(){
   const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
@@ -469,34 +556,7 @@ function run(){
     ? fullAll.map(([px,py])=>[geo.origin[0]+px*geo.res[0], geo.origin[1]+py*geo.res[1]]) : null;
 
   // ---- clip to KML boundary (if provided) ----
-  let clipped=false, clipMsg='', boundaryPx=null, boundaryHa=null;
-  if(boundary){
-    if(!(geo&&geo.origin&&geo.res)){
-      clipMsg='Boundary ignored — needs a georeferenced GeoTIFF (JPG/PNG have no coordinates).';
-    } else {
-      const def=rasterProjDef(geo.crs);
-      if(!def){
-        clipMsg='Map CRS '+(geo.crs||'(unknown)')+' not recognised — tell me the EPSG code and I will add it. Counted whole map.';
-      } else {
-        const metric = def!=='EPSG:4326';
-        const workPolys=[], worldPolys=[];
-        for(const poly of boundary){
-          const wp=[], wo=[];
-          for(const [lon,lat] of poly){
-            let X,Y;
-            if(metric){const o=proj4('EPSG:4326',def,[lon,lat]);X=o[0];Y=o[1];}else{X=lon;Y=lat;}
-            wo.push([X,Y]);
-            wp.push([ (X-geo.origin[0])/geo.res[0]*scale, (Y-geo.origin[1])/geo.res[1]*scale ]);
-          }
-          workPolys.push(wp); worldPolys.push(wo);
-        }
-        boundaryPx=workPolys; clipped=true;
-        if(metric){ boundaryHa=0; for(const wo of worldPolys){let a=0;
-          for(let i=0,j=wo.length-1;i<wo.length;j=i++){a+=wo[j][0]*wo[i][1]-wo[i][0]*wo[j][1];}
-          boundaryHa+=Math.abs(a/2)/10000; } }
-      }
-    }
-  }
+  const {clipped,clipMsg,boundaryPx,boundaryHa}=clipToBoundary(geo,scale);
   const keep=[]; ptsAll.forEach((p,i)=>{ if(!clipped||pointInPolys(p,boundaryPx))keep.push(i); });
   const pts=keep.map(i=>ptsAll[i]);
   const full=keep.map(i=>fullAll[i]);
@@ -513,6 +573,98 @@ function run(){
 
   result={count:pts.length,pts,full,coords,areaHa,geo,fullW,fullH,w,h,scale,mode,
           density:areaHa?pts.length/areaHa:null,src,thr,clipped,clipMsg,boundaryPx};
+  render();
+}
+
+/* ============================ AI engine (Gemini via proxy) ============================ */
+// merge near-duplicate points (objects seen in two overlapping tiles) by min distance
+function dedupe(points,minDist){
+  const cell=Math.max(1,minDist),grid=new Map(),key=(a,b)=>a+','+b,out=[],md2=minDist*minDist;
+  for(const [x,y] of points){
+    const cx=Math.floor(x/cell),cy=Math.floor(y/cell);let ok=true;
+    for(let gx=cx-1;gx<=cx+1&&ok;gx++)for(let gy=cy-1;gy<=cy+1;gy++){
+      const arr=grid.get(key(gx,gy));if(!arr)continue;
+      for(const [ax,ay] of arr){const dx=ax-x,dy=ay-y;if(dx*dx+dy*dy<md2){ok=false;break;}}}
+    if(ok){out.push([x,y]);const k=key(cx,cy);if(!grid.has(k))grid.set(k,[]);grid.get(k).push([x,y]);}
+  }
+  return out;
+}
+async function aiCall(imageB64){
+  const headers={'content-type':'application/json'};
+  const tok=aiToken(); if(tok)headers['x-access-token']=tok;
+  const r=await fetch(aiEndpoint(),{method:'POST',headers,body:JSON.stringify({image:imageB64,mode})});
+  if(!r.ok)throw new Error('proxy '+r.status+' — '+(await r.text()).slice(0,160));
+  return r.json();                            // {count, points:[{x,y}]} with x,y in 0..1000
+}
+async function runAI(){
+  const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
+  if(!aiEndpoint()){ setStatus('Set the AI proxy endpoint URL in AI settings first.'); return; }
+
+  // draw the working image once, then cut tiles from it
+  const sc=document.createElement('canvas'); sc.width=w; sc.height=h;
+  const sctx=sc.getContext('2d');
+  const sid=sctx.createImageData(w,h); sid.data.set(rgba); sctx.putImageData(sid,0,0);
+
+  // polybags are small + dense → smaller tiles; palms are larger → bigger tiles
+  const tile = mode==='polybag'?640:1024;
+  const overlap = mode==='polybag'?64:96;
+  const step = tile-overlap, sendMax=1024;
+  const xs=[]; for(let x=0;x<w;x+=step){ xs.push(x); if(x+tile>=w) break; }
+  const ys=[]; for(let y=0;y<h;y+=step){ ys.push(y); if(y+tile>=h) break; }
+  const tiles=[]; for(const y of ys)for(const x of xs){ tiles.push({x,y,sw:Math.min(tile,w-x),sh:Math.min(tile,h-y)}); }
+
+  async function doTile(t){
+    const longEdge=Math.max(t.sw,t.sh), k=longEdge>sendMax?sendMax/longEdge:1;
+    const dw=Math.max(1,Math.round(t.sw*k)), dh=Math.max(1,Math.round(t.sh*k));
+    const tc=document.createElement('canvas'); tc.width=dw; tc.height=dh;
+    tc.getContext('2d').drawImage(sc,t.x,t.y,t.sw,t.sh,0,0,dw,dh);
+    const b64=tc.toDataURL('image/jpeg',0.85).split(',')[1];
+    const res=await aiCall(b64);
+    // map normalised tile points back to working pixels; fall back to count-only if no points
+    if(Array.isArray(res.points)&&res.points.length)
+      return res.points.map(p=>[ t.x+(p.x/1000)*t.sw, t.y+(p.y/1000)*t.sh ]);
+    return [];
+  }
+
+  // run tiles with limited concurrency + live progress
+  const allPts=[]; let done=0, failed=0, idx=0; const conc=Math.min(4,tiles.length);
+  async function worker(){
+    while(idx<tiles.length){
+      const my=idx++;
+      try{ const pts=await doTile(tiles[my]); allPts.push(...pts); }
+      catch(err){ failed++; console.error(err); }
+      done++; setStatus('Counting with AI — tile '+done+'/'+tiles.length+(failed?(' · '+failed+' failed'):'')+'…');
+    }
+  }
+  await Promise.all(Array.from({length:conc},worker));
+  if(failed===tiles.length){ setStatus('AI counting failed on every tile — check the endpoint URL / access token. (See console.)'); return; }
+
+  // de-duplicate across tile overlaps, then assemble the same result shape the local engine produces
+  const minD = mode==='polybag'?8:18;
+  const ptsAll=dedupe(allPts,minD);
+  const fullAll=ptsAll.map(([x,y])=>[x/scale,y/scale]);
+  const coordsAll=(geo&&geo.origin&&geo.res)
+    ? fullAll.map(([px,py])=>[geo.origin[0]+px*geo.res[0], geo.origin[1]+py*geo.res[1]]) : null;
+
+  const {clipped,clipMsg,boundaryPx,boundaryHa}=clipToBoundary(geo,scale);
+  const keep=[]; ptsAll.forEach((p,i)=>{ if(!clipped||pointInPolys(p,boundaryPx))keep.push(i); });
+  const pts=keep.map(i=>ptsAll[i]);
+  const full=keep.map(i=>fullAll[i]);
+  const coords=coordsAll?keep.map(i=>coordsAll[i]):null;
+
+  let areaHa=null;
+  const gsd=parseFloat($('gsd').value)||0;
+  const geographic = geo&&geo.crs&&/4326|4269|4258/.test(geo.crs);
+  if(clipped&&boundaryHa){ areaHa=boundaryHa; }
+  else if(geo&&geo.bbox&&!geographic){
+    const m2=Math.abs((geo.bbox[2]-geo.bbox[0])*(geo.bbox[3]-geo.bbox[1]));
+    if(m2>0&&m2<1e12) areaHa=m2/10000;
+  }else if(gsd>0){ areaHa=(fullW*fullH*Math.pow(gsd/100,2))/10000; }
+
+  let src='AI · Gemini, '+tiles.length+' tiles';
+  if(failed) src+=' ('+failed+' failed)';
+  result={count:pts.length,pts,full,coords,areaHa,geo,fullW,fullH,w,h,scale,mode,
+          density:areaHa?pts.length/areaHa:null,src,thr:0,clipped,clipMsg,boundaryPx};
   render();
 }
 
@@ -564,7 +716,7 @@ $('dl-csv').addEventListener('click',()=>{
   let csv='id,pixel_x,pixel_y'+(geo?',x,y':'')+'\n';
   r.full.forEach(([x,y],i)=>{csv+=(i+1)+','+Math.round(x)+','+Math.round(y)
     +(geo?(','+geo[i][0].toFixed(3)+','+geo[i][1].toFixed(3)):'')+'\n';});
-  save(new Blob([csv],{type:'text/csv'}),'frond_'+r.mode+'_'+stamp()+'_points.csv');
+  save(new Blob([csv],{type:'text/csv'}),'dia_'+r.mode+'_'+stamp()+'_points.csv');
 });
 
 $('dl-geojson').addEventListener('click',()=>{
@@ -572,23 +724,23 @@ $('dl-geojson').addEventListener('click',()=>{
   const feats=r.coords.map((c,i)=>({type:'Feature',properties:{id:i+1},
     geometry:{type:'Point',coordinates:[c[0],c[1]]}}));
   const fc={type:'FeatureCollection',crs:{type:'name',properties:{name:r.geo.crs}},features:feats};
-  save(new Blob([JSON.stringify(fc)],{type:'application/json'}),'frond_'+r.mode+'_'+stamp()+'_points.geojson');
+  save(new Blob([JSON.stringify(fc)],{type:'application/json'}),'dia_'+r.mode+'_'+stamp()+'_points.geojson');
 });
 
 $('dl-png').addEventListener('click',()=>{
-  $('cv').toBlob(b=>save(b,'frond_'+result.mode+'_'+stamp()+'_map.png'),'image/png');
+  $('cv').toBlob(b=>save(b,'dia_'+result.mode+'_'+stamp()+'_map.png'),'image/png');
 });
 
 $('dl-report').addEventListener('click',()=>{
   const r=result;const png=$('cv').toDataURL('image/png');
   const row=(k,v)=>'<tr><th>'+k+'</th><td>'+v+'</td></tr>';
-  const html='<!DOCTYPE html><meta charset="utf-8"><title>Frond report — '+r.mode+' '+stamp()+'</title>'
+  const html='<!DOCTYPE html><meta charset="utf-8"><title>DIA report — '+r.mode+' '+stamp()+'</title>'
    +'<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:30px auto;padding:0 20px;color:#1a1a1a}'
    +'h1{font-size:22px}.c{font-size:46px;color:#e8551f;font-weight:700;margin:4px 0}'
    +'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:7px 12px;text-align:left;font-size:14px}'
    +'th{background:#f4f4f0;width:200px}img{max-width:100%;border:1px solid #ccc;margin-top:10px}'
    +'small{color:#777}</style>'
-   +'<h1>Frond — '+(r.mode==='palm'?'Oil palm plantation':'Nursery polybag')+' count</h1>'
+   +'<h1>DIA — '+(r.mode==='palm'?'Oil palm plantation':'Nursery polybag')+' count</h1>'
    +'<div class="c">'+r.count+' '+PRESET[r.mode].word+'</div>'
    +'<table>'
    +row('Date',new Date().toLocaleString())
@@ -597,11 +749,12 @@ $('dl-report').addEventListener('click',()=>{
    +row('Georeferenced',r.geo?(r.geo.crs||'yes'):'no')
    +row('Counted within boundary',r.clipped?'yes — clipped to KML':'no — whole map')
    +row('Source resolution',r.fullW+' × '+r.fullH+' px')
-   +row('Detection setting',r.src+', sensitivity '+r.thr.toFixed(2))
+   +row('Detection setting',r.src+(r.thr?', sensitivity '+r.thr.toFixed(2):''))
    +'</table>'
    +'<img src="'+png+'" alt="annotated map">'
-   +'<p><small>Generated by Frond in-browser. Counts are estimates from canopy greenness.</small></p>';
-  save(new Blob([html],{type:'text/html'}),'frond_'+r.mode+'_'+stamp()+'_report.html');
+   +'<p><small>Generated by MJM AI · DIA. Counts are estimates'
+   +(r.src&&r.src.indexOf('AI')===0?' from a Gemini vision model.':' from canopy greenness.')+'</small></p>';
+  save(new Blob([html],{type:'text/html'}),'dia_'+r.mode+'_'+stamp()+'_report.html');
 });
 </script>
 </body>

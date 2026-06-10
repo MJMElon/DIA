@@ -1,0 +1,13 @@
+name = "dia-count-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Optional configuration (non-secret). Uncomment / edit as needed.
+[vars]
+GEMINI_MODEL = "gemini-2.5-flash"
+# Lock the proxy to your site's origin (recommended once deployed):
+# ALLOWED_ORIGIN = "https://YOUR-USERNAME.github.io"
+
+# Secrets are NOT stored here. Set them with wrangler (see AI-SETUP.md):
+#   wrangler secret put GEMINI_API_KEY
+#   wrangler secret put ACCESS_TOKEN     # optional but recommended
