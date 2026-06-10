@@ -71,12 +71,12 @@ export default async function (req) {
     },
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
   let resp;
   try {
     resp = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
   } catch (e) {
