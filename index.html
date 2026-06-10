@@ -252,6 +252,12 @@
    the key would be scraped and Google auto-revokes leaked keys. */
 const DEFAULT_AI_ENDPOINT='';   // e.g. 'https://dia-count-proxy.you.workers.dev'
 const DEFAULT_AI_TOKEN='';      // optional access token, if your proxy requires one
+// Embed a Gemini key directly (no proxy). NOTE: this page is public, so the key
+// is publicly readable — only ever put a FREE-TIER key here from a Google project
+// with BILLING DISABLED, so it can never be charged. Restrict it in Google Cloud
+// to the "Generative Language API" and your domain. See AI-SETUP.md.
+const DEFAULT_GEMINI_KEY='';    // paste your AIza... key here
+const DEFAULT_GEMINI_MODEL='gemini-2.5-flash';
 
 /* ============================ detection core (validated) ============================ */
 function normalizeExG(rgba, w, h){
@@ -369,9 +375,10 @@ syncDirectUI();
 $('aidirect').addEventListener('change',()=>{ localStorage.setItem(AI_DIRECT_KEY,$('aidirect').checked?'1':'0'); syncDirectUI(); });
 $('aikey').addEventListener('change',()=>localStorage.setItem(AI_KEY_KEY,$('aikey').value.trim()));
 $('aimodel').addEventListener('change',()=>localStorage.setItem(AI_MODEL_KEY,$('aimodel').value.trim()));
-const aiDirect=()=>$('aidirect').checked;
-const aiKey=()=>($('aikey').value||'').trim();
-const aiModel=()=>($('aimodel').value||'').trim()||'gemini-2.5-flash';
+const aiKey=()=>(($('aikey').value||'').trim())||DEFAULT_GEMINI_KEY||'';
+const aiModel=()=>(($('aimodel').value||'').trim())||DEFAULT_GEMINI_MODEL||'gemini-2.5-flash';
+// embedded key + no proxy URL → use direct Google calls automatically (no toggle needed)
+const aiDirect=()=>$('aidirect').checked||(!aiEndpoint()&&!!aiKey());
 
 /* drag + drop */
 const drop=$('drop');

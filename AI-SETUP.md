@@ -87,4 +87,34 @@ same as the local engine.
 - **Privacy:** in AI mode the image tiles *do* leave your machine (they go to your proxy
   and then to Google). Local mode still uploads nothing.
 - **Other hosts:** the same `worker.js` logic works on Vercel/Netlify functions with minor
-  wrapping; Cloudflare Workers is just the simplest free option.
+  wrapping; Cloudflare Workers is just the simplest free option. `proxy/val-town.js` is the
+  same proxy adapted for [val.town](https://val.town) — paste it into an HTTP val and add
+  `GEMINI_API_KEY` as an environment variable.
+
+---
+
+## Option B — embed the key directly (no proxy)
+
+If you don't want any proxy, you can paste the key straight into the page. **Understand the
+trade-off:** the page is public, so the key is publicly readable — there is no way to hide it
+(spacing/obfuscation does not work; the browser must send the real key to Google, visible in
+the Network tab). Only do this with a key you've locked down so it can't cost you money.
+
+**Make the key safe to expose:**
+
+1. Use a Gemini key from a Google Cloud project with **billing DISABLED** (free tier only).
+   An exposed free-tier key can only ever hit the free daily quota — it can never be charged.
+2. In **Google Cloud Console → APIs & Services → Credentials**, click the key and set:
+   - **API restrictions → Restrict key → Generative Language API** (so the key is useless for anything else).
+   - **Application restrictions → Websites** → add `mjmelon.github.io/*` (best-effort; limits casual abuse).
+3. Expect that GitHub/Google secret-scanning may still flag or auto-disable the key over time.
+   If counting suddenly stops working, generate a fresh (free-tier) key and replace it.
+
+**Wire it in:** edit `index.html`, find this line near the top of the `<script>`:
+
+```js
+const DEFAULT_GEMINI_KEY='';    // paste your AIza... key here
+```
+
+Put your key between the quotes, commit. AI mode then works for everyone with no key entry —
+no proxy, no settings. (The in-page "AI settings → Direct mode" fields still work as an override.)
