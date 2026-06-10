@@ -133,9 +133,10 @@
       </div>
 
       <div class="field">
-        <label>Detection sensitivity</label>
-        <input type="range" id="thr" min="0.25" max="0.65" step="0.01" value="0.45" />
-        <div class="rowval"><span>more (catches fainter green)</span><span id="thrv">0.45</span></div>
+        <label>Gemini API key — saved in this browser only</label>
+        <input type="text" id="aikey" placeholder="paste your key once" />
+        <p class="hint">Stored only in your browser — never uploaded, never shown in the page source,
+          so Google won't disable it. Enter it once per device.</p>
       </div>
 
       <div class="field">
@@ -281,7 +282,10 @@ let mode='palm', loaded=null, result=null, currentFile=null;
 const $=id=>document.getElementById(id);
 const workmax=()=>parseInt($('detail').value,10);  // longest side used for detection
 
-$('thr').addEventListener('input',e=>$('thrv').textContent=(+e.target.value).toFixed(2));
+/* Gemini key: entered once, stored only in this browser (never uploaded) */
+const AI_KEY_KEY='dia_ai_key';
+$('aikey').value=localStorage.getItem(AI_KEY_KEY)||'';
+$('aikey').addEventListener('input',()=>localStorage.setItem(AI_KEY_KEY,$('aikey').value.trim()));
 $('seg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b)return;
   mode=b.dataset.mode;
@@ -292,7 +296,7 @@ $('seg').addEventListener('click',e=>{
 /* AI counting is always on; key/endpoint come from the deployment config above */
 const aiEndpoint=()=>(DEFAULT_AI_ENDPOINT||'').trim();
 const aiToken=()=>(DEFAULT_AI_TOKEN||'').trim();
-const aiKey=()=>(DEFAULT_GEMINI_KEY||'').trim();
+const aiKey=()=>(($('aikey').value||'').trim())||(DEFAULT_GEMINI_KEY||'').trim();
 const aiModel=()=>(DEFAULT_GEMINI_MODEL||'gemini-2.5-flash').trim();
 // use the proxy if a URL is configured, otherwise call Google directly with the embedded key
 const aiDirect=()=>!aiEndpoint()&&!!aiKey();
@@ -572,10 +576,10 @@ function parseGemini(data){
   return {count:Number.isFinite(parsed.count)?parsed.count:points.length, points};
 }
 async function geminiDirect(imageB64){
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+aiModel()+':generateContent',
-    {method:'POST',headers:{'content-type':'application/json','x-goog-api-key':aiKey()},
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+aiModel()+':generateContent?key='+encodeURIComponent(aiKey()),
+    {method:'POST',headers:{'content-type':'application/json'},
      body:JSON.stringify(geminiBody(imageB64))});
-  if(!r.ok)throw new Error('gemini '+r.status+' — '+(await r.text()).slice(0,160));
+  if(!r.ok)throw new Error('gemini '+r.status+' — '+(await r.text()).slice(0,200));
   return parseGemini(await r.json());
 }
 async function aiCallProxy(imageB64){
@@ -588,7 +592,7 @@ async function aiCallProxy(imageB64){
 async function aiCall(imageB64){ return aiDirect()?geminiDirect(imageB64):aiCallProxy(imageB64); }
 async function runAI(){
   const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
-  if(!aiKey()&&!aiEndpoint()){ setStatus('AI counting is not set up yet — add your Gemini key to DEFAULT_GEMINI_KEY in index.html.'); return; }
+  if(!aiKey()&&!aiEndpoint()){ setStatus('Enter your Gemini API key once in the field on the left — it saves in your browser.'); return; }
 
   // draw the working image once, then cut tiles from it
   const sc=document.createElement('canvas'); sc.width=w; sc.height=h;
