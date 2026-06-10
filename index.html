@@ -37,9 +37,10 @@
   .panel h2{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);
     font-family:'IBM Plex Mono',monospace;margin-bottom:14px;font-weight:500}
   /* drop zone */
-  .drop{border:1.5px dashed var(--frond-dim);border-radius:var(--radius);padding:26px 16px;text-align:center;
+  .drop{display:block;border:1.5px dashed var(--frond-dim);border-radius:8px;padding:28px 18px;text-align:center;
     cursor:pointer;transition:.15s;background:var(--panel-2)}
   .drop:hover,.drop.hot{border-color:var(--frond);background:#1f2616}
+  .drop svg{width:30px;height:30px;color:var(--frond);margin:0 auto 12px;display:block}
   .drop .big{font-size:14px;font-weight:500}
   .drop .small{font-size:12px;color:var(--muted);margin-top:6px}
   .drop .fname{color:var(--frond);font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:8px;word-break:break-all}
@@ -104,9 +105,6 @@
         <span class="tag">Drone Imagery Analysis</span>
       </div>
     </div>
-    <p>Upload a drone map — GeoTIFF, TIFF, JPG or PNG — and count it. In <b>Local</b> mode everything runs in your
-       browser and nothing is uploaded. In <b>AI</b> mode, image tiles are sent to your own Gemini proxy for higher
-       accuracy on dense maps.</p>
   </header>
 
   <div class="grid">
@@ -115,6 +113,7 @@
       <h2>1 · Map</h2>
       <label class="drop" id="drop">
         <input type="file" id="file" accept=".tif,.tiff,.jpg,.jpeg,.png" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
         <div class="big">Drop a map here</div>
         <div class="small">or click to browse · GeoTIFF / TIFF / JPG / PNG</div>
         <div class="fname" id="fname"></div>
@@ -242,16 +241,18 @@
     </div>
   </div>
 
-  <footer>
-    MJM AI · DIA — Local counting runs entirely in your browser; AI mode sends image tiles to your own Gemini
-    proxy for higher accuracy on dense maps.
-    Green-detection works best on well-separated mature palms and tidy nursery rows; it can under-count where
-    canopies overlap heavily or weeds are as green as the crop. Big maps are downsampled for speed and the count
-    is scaled back to full resolution. A GeoTIFF gives real coordinates per palm; plain images give pixel positions.
-  </footer>
 </div>
 
 <script>
+/* ===================== deployment config =====================
+   Bake your deployed proxy URL here so the page works with NO manual entry and
+   NO key in the browser. Once set, AI mode "just works" for everyone.
+   Lock the proxy with ALLOWED_ORIGIN (and optionally an access token) — see
+   AI-SETUP.md. Never put your raw Gemini key in this file: this page is public,
+   the key would be scraped and Google auto-revokes leaked keys. */
+const DEFAULT_AI_ENDPOINT='';   // e.g. 'https://dia-count-proxy.you.workers.dev'
+const DEFAULT_AI_TOKEN='';      // optional access token, if your proxy requires one
+
 /* ============================ detection core (validated) ============================ */
 function normalizeExG(rgba, w, h){
   const n=w*h, exg=new Float32Array(n); let mn=Infinity,mx=-Infinity;
@@ -350,8 +351,8 @@ $('engineseg').addEventListener('click',e=>{
 });
 /* AI proxy settings persist locally so they survive reloads */
 const AI_URL_KEY='dia_ai_url', AI_TOK_KEY='dia_ai_token';
-$('aiurl').value=localStorage.getItem(AI_URL_KEY)||'';
-$('aitoken').value=localStorage.getItem(AI_TOK_KEY)||'';
+$('aiurl').value=localStorage.getItem(AI_URL_KEY)||DEFAULT_AI_ENDPOINT||'';
+$('aitoken').value=localStorage.getItem(AI_TOK_KEY)||DEFAULT_AI_TOKEN||'';
 $('aiurl').addEventListener('change',()=>localStorage.setItem(AI_URL_KEY,$('aiurl').value.trim()));
 $('aitoken').addEventListener('change',()=>localStorage.setItem(AI_TOK_KEY,$('aitoken').value.trim()));
 const aiEndpoint=()=>($('aiurl').value||'').trim();
