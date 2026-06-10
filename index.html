@@ -132,19 +132,6 @@
         <button data-mode="polybag">Nursery polybags</button>
       </div>
 
-      <details>
-        <summary>Calibration (optional)</summary>
-        <div class="field">
-          <label>Ground sampling distance — cm per pixel</label>
-          <input type="number" id="gsd" min="0" step="0.1" placeholder="e.g. 5  (from drone report)" />
-        </div>
-        <div class="field">
-          <label>Planting spacing — metres</label>
-          <input type="number" id="spacing" min="0" step="0.1" placeholder="palm ≈ 9 · polybag ≈ 0.75" />
-        </div>
-        <p class="hint">Leave blank and Frond estimates the spacing from the map itself.</p>
-      </details>
-
       <div class="field">
         <label>Detection sensitivity</label>
         <input type="range" id="thr" min="0.25" max="0.65" step="0.01" value="0.45" />
@@ -213,6 +200,11 @@ const DEFAULT_AI_TOKEN='';      // optional access token, if your proxy requires
 // to the "Generative Language API" and your domain. See AI-SETUP.md.
 const DEFAULT_GEMINI_KEY='AQ.Ab8RN6IahMw10v8N5ZE61ZzSoC8Z_ki-A_dWb5Zs-orTiUhn7g';
 const DEFAULT_GEMINI_MODEL='gemini-2.5-flash';
+// calibration is handled here in code (no UI). Tune these once you know your maps:
+//   DEFAULT_GSD     — ground sampling distance, cm per pixel (0 = unknown)
+//   DEFAULT_SPACING — planting spacing, metres (0 = auto / use the per-mode preset)
+const DEFAULT_GSD=0;
+const DEFAULT_SPACING=0;
 
 /* ============================ detection core (validated) ============================ */
 function normalizeExG(rgba, w, h){
@@ -497,8 +489,8 @@ function clipToBoundary(geo,scale){
 function run(){
   const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
   const thr=+$('thr').value;
-  const gsd=parseFloat($('gsd').value)||0;
-  const spacingIn=parseFloat($('spacing').value)||0;
+  const gsd=DEFAULT_GSD||0;
+  const spacingIn=DEFAULT_SPACING||0;
 
   // work-pixel minimum distance between two plants
   let workMinDist, src;
@@ -626,17 +618,17 @@ async function runAI(){
 
   // run tiles with limited concurrency + live progress
   // gentler concurrency in direct mode — free-tier Gemini keys are rate-limited
-  const allPts=[]; let done=0, failed=0, idx=0; const conc=Math.min(aiDirect()?2:4,tiles.length);
+  const allPts=[]; let done=0, failed=0, idx=0, lastError=''; const conc=Math.min(aiDirect()?2:4,tiles.length);
   async function worker(){
     while(idx<tiles.length){
       const my=idx++;
       try{ const pts=await doTile(tiles[my]); allPts.push(...pts); }
-      catch(err){ failed++; console.error(err); }
+      catch(err){ failed++; lastError=(err&&err.message)?err.message:String(err); console.error(err); }
       done++; setStatus('Counting with AI — tile '+done+'/'+tiles.length+(failed?(' · '+failed+' failed'):'')+'…');
     }
   }
   await Promise.all(Array.from({length:conc},worker));
-  if(failed===tiles.length){ setStatus('AI counting failed on every tile — check the endpoint URL / access token. (See console.)'); return; }
+  if(failed===tiles.length){ setStatus('AI counting failed — '+(lastError||'unknown error')); return; }
 
   // de-duplicate across tile overlaps, then assemble the same result shape the local engine produces
   const minD = mode==='polybag'?8:18;
@@ -652,7 +644,7 @@ async function runAI(){
   const coords=coordsAll?keep.map(i=>coordsAll[i]):null;
 
   let areaHa=null;
-  const gsd=parseFloat($('gsd').value)||0;
+  const gsd=DEFAULT_GSD||0;
   const geographic = geo&&geo.crs&&/4326|4269|4258/.test(geo.crs);
   if(clipped&&boundaryHa){ areaHa=boundaryHa; }
   else if(geo&&geo.bbox&&!geographic){
