@@ -142,16 +142,40 @@
 
       <details id="aibox" style="display:none">
         <summary>AI settings (Gemini)</summary>
-        <div class="field">
-          <label>Proxy endpoint URL</label>
-          <input type="text" id="aiurl" placeholder="https://your-worker.workers.dev" />
+
+        <div class="field" style="margin-top:14px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="aidirect" style="width:auto" />
+            Direct mode — test only (call Google from this browser)
+          </label>
         </div>
-        <div class="field">
-          <label>Access token (if your proxy requires one)</label>
-          <input type="text" id="aitoken" placeholder="optional" />
+
+        <div id="aidirectbox" style="display:none">
+          <div class="field">
+            <label>Gemini API key</label>
+            <input type="text" id="aikey" placeholder="AIza…" />
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <input type="text" id="aimodel" placeholder="gemini-2.5-flash" />
+          </div>
+          <p class="hint">⚠ Test only. The key is saved in this browser and sent straight to Google — fine for
+            trying it on your own machine, but anyone who uses a page with a key saved in it spends your quota.
+            Free-tier keys are rate-limited, so start with a lower Detail setting.</p>
         </div>
-        <p class="hint">Your Gemini API key stays on the proxy server — it is never sent to the browser.
-          See AI-SETUP.md to deploy the proxy.</p>
+
+        <div id="aiproxybox">
+          <div class="field">
+            <label>Proxy endpoint URL</label>
+            <input type="text" id="aiurl" placeholder="https://your-worker.workers.dev" />
+          </div>
+          <div class="field">
+            <label>Access token (if your proxy requires one)</label>
+            <input type="text" id="aitoken" placeholder="optional" />
+          </div>
+          <p class="hint">Your Gemini API key stays on the proxy server — never sent to the browser.
+            See AI-SETUP.md to deploy the proxy.</p>
+        </div>
       </details>
 
       <details>
@@ -332,6 +356,21 @@ $('aiurl').addEventListener('change',()=>localStorage.setItem(AI_URL_KEY,$('aiur
 $('aitoken').addEventListener('change',()=>localStorage.setItem(AI_TOK_KEY,$('aitoken').value.trim()));
 const aiEndpoint=()=>($('aiurl').value||'').trim();
 const aiToken=()=>($('aitoken').value||'').trim();
+
+/* direct (test-only) mode: browser calls Google directly with the user's key */
+const AI_DIRECT_KEY='dia_ai_direct', AI_KEY_KEY='dia_ai_key', AI_MODEL_KEY='dia_ai_model';
+$('aidirect').checked=localStorage.getItem(AI_DIRECT_KEY)==='1';
+$('aikey').value=localStorage.getItem(AI_KEY_KEY)||'';
+$('aimodel').value=localStorage.getItem(AI_MODEL_KEY)||'';
+function syncDirectUI(){ const d=$('aidirect').checked;
+  $('aidirectbox').style.display=d?'block':'none'; $('aiproxybox').style.display=d?'none':'block'; }
+syncDirectUI();
+$('aidirect').addEventListener('change',()=>{ localStorage.setItem(AI_DIRECT_KEY,$('aidirect').checked?'1':'0'); syncDirectUI(); });
+$('aikey').addEventListener('change',()=>localStorage.setItem(AI_KEY_KEY,$('aikey').value.trim()));
+$('aimodel').addEventListener('change',()=>localStorage.setItem(AI_MODEL_KEY,$('aimodel').value.trim()));
+const aiDirect=()=>$('aidirect').checked;
+const aiKey=()=>($('aikey').value||'').trim();
+const aiModel=()=>($('aimodel').value||'').trim()||'gemini-2.5-flash';
 
 /* drag + drop */
 const drop=$('drop');
@@ -589,16 +628,48 @@ function dedupe(points,minDist){
   }
   return out;
 }
-async function aiCall(imageB64){
+// the Gemini request body — shared by direct mode (and mirrored by the proxy)
+function geminiBody(imageB64){
+  const subject = mode==='polybag'
+    ? 'oil palm nursery polybag seedlings (small dark bags, each holding one young plant, in tight rows)'
+    : 'oil palm trees (each a single round green crown) in a plantation';
+  const prompt='This is an aerial / drone image tile. Count every distinct '+subject+' you can see, '
+    +'including partial ones cut off at the tile edges. Be thorough; do not skip faint or shadowed ones. '
+    +'Return strict JSON only: {"count": <integer>, "points": [{"x": <0-1000>, "y": <0-1000>}, ...]} where each '
+    +'point marks the centre of one item and x,y are normalised to 0-1000 of the tile width and height. The '
+    +'number of points must equal count. If there are none, return count 0 and an empty array.';
+  return {contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:imageB64}},{text:prompt}]}],
+    generationConfig:{temperature:0,responseMimeType:'application/json',responseSchema:{type:'OBJECT',
+      properties:{count:{type:'INTEGER'},points:{type:'ARRAY',items:{type:'OBJECT',
+        properties:{x:{type:'NUMBER'},y:{type:'NUMBER'}},required:['x','y']}}},required:['count']}}};
+}
+function parseGemini(data){
+  let parsed; try{ const txt=((data.candidates||[])[0]||{}).content
+      ? data.candidates[0].content.parts.map(p=>p.text||'').join('') : '';
+    parsed=JSON.parse(txt); }
+  catch(e){ throw new Error('could not parse model output'); }
+  const points=Array.isArray(parsed.points)?parsed.points:[];
+  return {count:Number.isFinite(parsed.count)?parsed.count:points.length, points};
+}
+async function geminiDirect(imageB64){
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+aiModel()+':generateContent',
+    {method:'POST',headers:{'content-type':'application/json','x-goog-api-key':aiKey()},
+     body:JSON.stringify(geminiBody(imageB64))});
+  if(!r.ok)throw new Error('gemini '+r.status+' — '+(await r.text()).slice(0,160));
+  return parseGemini(await r.json());
+}
+async function aiCallProxy(imageB64){
   const headers={'content-type':'application/json'};
   const tok=aiToken(); if(tok)headers['x-access-token']=tok;
   const r=await fetch(aiEndpoint(),{method:'POST',headers,body:JSON.stringify({image:imageB64,mode})});
   if(!r.ok)throw new Error('proxy '+r.status+' — '+(await r.text()).slice(0,160));
   return r.json();                            // {count, points:[{x,y}]} with x,y in 0..1000
 }
+async function aiCall(imageB64){ return aiDirect()?geminiDirect(imageB64):aiCallProxy(imageB64); }
 async function runAI(){
   const {rgba,w,h,fullW,fullH,scale,geo}=loaded;
-  if(!aiEndpoint()){ setStatus('Set the AI proxy endpoint URL in AI settings first.'); return; }
+  if(aiDirect()){ if(!aiKey()){ setStatus('Enter your Gemini API key in AI settings (direct mode).'); return; } }
+  else if(!aiEndpoint()){ setStatus('Set the AI proxy endpoint URL in AI settings first.'); return; }
 
   // draw the working image once, then cut tiles from it
   const sc=document.createElement('canvas'); sc.width=w; sc.height=h;
@@ -627,7 +698,8 @@ async function runAI(){
   }
 
   // run tiles with limited concurrency + live progress
-  const allPts=[]; let done=0, failed=0, idx=0; const conc=Math.min(4,tiles.length);
+  // gentler concurrency in direct mode — free-tier Gemini keys are rate-limited
+  const allPts=[]; let done=0, failed=0, idx=0; const conc=Math.min(aiDirect()?2:4,tiles.length);
   async function worker(){
     while(idx<tiles.length){
       const my=idx++;
