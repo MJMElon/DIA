@@ -1,60 +1,74 @@
-# Frond — Oil Palm & Polybag Counter
+# DIA — Drone Imagery Analysis
 
-A single-file, browser-only tool to count oil palms (plantation) or polybag
-seedlings (nursery) from a drone map. No server, no install, no data leaves the
-browser. Drop a map, count, download the report, keep it on your machine.
+Count oil palms (plantation) or polybag seedlings (nursery) from a drone map.
+**React + Vite** front end, **Supabase** back end. The Google Gemini API key lives
+**server-side** in a Supabase Edge Function, so it is never exposed in the browser
+and you never type it in.
 
-## Put it online with GitHub Pages
+## Architecture
 
-1. Create a repo and add this `index.html` to it.
-2. Repo **Settings -> Pages -> Source: Deploy from branch -> main / root**.
-3. Wait ~1 minute. Your tool is live at `https://USERNAME.github.io/REPO/`.
-4. Share that link — anyone can open it in a browser and use it.
+```
+React app (Vite)                Supabase
+─────────────────               ─────────────────────────────
+ upload GeoTIFF/JPG/PNG  ──►  Edge Function `count`  ──►  Google Gemini
+ tile + annotate                holds GEMINI_API_KEY        vision model
+ sign-in (email link)           verify_jwt = true
+```
+
+- **No key in the browser.** Anything in React is public; the key stays in the
+  Edge Function as a Supabase secret.
+- **Sign-in required.** Only authenticated users can call the function, which
+  protects your Gemini quota.
+
+## Quick start
+
+```bash
+npm install
+cp .env.example .env.local     # add your Supabase URL + anon key
+npm run dev                    # http://localhost:5173
+```
+
+Full backend setup (Gemini key, Supabase project, deploying the Edge Function,
+enabling email auth, hosting the build) is in **[AI-SETUP.md](./AI-SETUP.md)**.
 
 ## Use
 
-- Drop a GeoTIFF / TIFF / JPG / PNG.
+- Sign in with the emailed magic link.
+- Drop a **GeoTIFF / TIFF / JPG / PNG**.
 - Pick **Plantation palms** or **Nursery polybags**.
-- Optional: enter GSD (cm/pixel) and spacing (m) for best accuracy; otherwise it
-  estimates spacing from the map.
-- Adjust **sensitivity** if it over- or under-counts, then **Count**.
+- Optional: drop a **.kml** boundary to count only inside your block.
+- Pick a **Detail** level (higher = denser nursery, slower), then **Count**.
 - Download the HTML report, annotated PNG, CSV, and (for GeoTIFFs) GeoJSON.
+
+## Project layout
+
+```
+index.html               Vite entry
+src/
+  main.jsx               React bootstrap
+  App.jsx                auth gate + layout
+  components/
+    Auth.jsx             email magic-link sign-in
+    Counter.jsx          the tool (upload, count, canvas, downloads)
+  lib/
+    supabase.js          Supabase client (public URL + anon key)
+    readMap.js           GeoTIFF / image → working RGBA buffer
+    ai.js                tile the map, call the Edge Function, de-dupe
+    detect.js            local greenness engine (offline fallback) + presets
+    geo.js               KML parse, reproject, clip-to-boundary
+    downloads.js         report / PNG / CSV / GeoJSON exports
+supabase/
+  config.toml            functions.count → verify_jwt = true
+  functions/count/       the Edge Function that holds GEMINI_API_KEY
+legacy/standalone.html   the original single-file app (reference / offline)
+proxy/                   old Cloudflare / val.town proxies (alternatives)
+```
 
 ## Notes
 
-- A GeoTIFF gives real coordinates per palm (CSV + GeoJSON for QGIS).
-- Large maps are downsampled for speed; the count is scaled back to full size.
-- Greenness detection is best on separated mature palms / tidy nursery rows.
-
-## Counting inside a block boundary (KML)
-
-Export the **GeoTIFF** (not JPG/PDF) — only the GeoTIFF carries the coordinates
-needed to line up a boundary. Then in the tool, also drop your **.kml** boundary
-file. The tool reprojects the boundary onto the map, counts only palms inside it,
-shades everything outside, and reports the true block area and density per hectare.
-
-- KML boundaries are assumed to be in WGS84 lat/long (the KML standard).
-- The GeoTIFF may be in WGS84 lat/long or a WGS84 UTM zone (the usual drone output).
-  If your map uses a different CRS, the tool will say so — send me the EPSG code
-  and I'll add it.
-- KMZ (zipped) isn't read directly — export a plain .kml.
-
-## File sizes — how big can a map be?
-
-The tool downsamples for detection, so the limit is **how big the file is on disk**
-and your **device memory**, not the map's pixel count directly.
-
-- **Plain GeoTIFF export:** comfortable up to a few hundred MB on a normal laptop;
-  ~300-500 MB on a 16 GB machine; above ~1 GB it gets risky in a browser.
-- **Cloud-Optimized GeoTIFF (COG, with internal overviews):** the tool reads only a
-  low-resolution overview, so it opens **multi-GB** files quickly with little memory.
-  This is the recommended export for large maps. (DroneDeploy/Pix4D/QGIS can export COG;
-  or convert with `gdal_translate in.tif out.tif -of COG`.)
-- **Detail selector:** Standard (2200px) is fine for plantation palms. For nursery
-  polybags, which sit close together, choose **High (4000px)** or **Max (6500px)** so
-  seedlings don't merge — at the cost of speed and memory.
-- **Very large dense nurseries (tens of ha):** count per block (use your KML blocks),
-  export COG, or use the desktop Python tool / QGIS for full-resolution tiling.
-
-Rule of thumb: file size grows with area and with the square of resolution — halving
-the GSD (finer detail) quadruples the size.
+- A **GeoTIFF** carries real coordinates → per-palm CSV + GeoJSON for QGIS.
+- Large maps are downsampled for detection; counts scale back to full size. For
+  multi-GB maps, export a **Cloud-Optimized GeoTIFF** (internal overviews) so the
+  app reads only a low-res level.
+- KML boundaries are assumed WGS84 lat/long; the GeoTIFF may be WGS84 lat/long or
+  a WGS84 UTM zone. Other CRS → tell me the EPSG code to add it. KMZ → export plain `.kml`.
