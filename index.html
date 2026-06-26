@@ -135,8 +135,8 @@
       <div class="field">
         <label>Gemini API key — saved in this browser only</label>
         <input type="text" id="aikey" placeholder="paste your key once" />
-        <p class="hint">Stored only in your browser — never uploaded, never shown in the page source,
-          so Google won't disable it. Enter it once per device.</p>
+        <p class="hint">Paste your Google AI Studio key here and counting talks to Google directly with it
+          (your key wins over the shared proxy). Stored only in this browser — never uploaded. Enter it once per device.</p>
       </div>
 
       <div class="field">
@@ -296,10 +296,13 @@ $('seg').addEventListener('click',e=>{
 /* AI counting is always on; key/endpoint come from the deployment config above */
 const aiEndpoint=()=>(DEFAULT_AI_ENDPOINT||'').trim();
 const aiToken=()=>(DEFAULT_AI_TOKEN||'').trim();
-const aiKey=()=>(($('aikey').value||'').trim())||(DEFAULT_GEMINI_KEY||'').trim();
+const userKey=()=>(($('aikey').value||'').trim());           // key pasted into the box
+const aiKey=()=>userKey()||(DEFAULT_GEMINI_KEY||'').trim();
 const aiModel=()=>(DEFAULT_GEMINI_MODEL||'gemini-2.5-flash').trim();
-// use the proxy if a URL is configured, otherwise call Google directly with the embedded key
-const aiDirect=()=>!aiEndpoint()&&!!aiKey();
+// If YOU pasted your own Google AI Studio (Gemini) key into the box, call Google
+// directly with it — your key always wins over the shared proxy. Otherwise use the
+// proxy if one is configured, or fall back to an embedded default key.
+const aiDirect=()=>!!userKey() || (!aiEndpoint()&&!!aiKey());
 
 /* drag + drop */
 const drop=$('drop');
@@ -632,7 +635,15 @@ async function runAI(){
     }
   }
   await Promise.all(Array.from({length:conc},worker));
-  if(failed===tiles.length){ setStatus('AI counting failed — '+(lastError||'unknown error')); return; }
+  if(failed===tiles.length){
+    const via=aiDirect()?'Google directly with your pasted key':'the proxy';
+    let hint='';
+    if(/\b(400|401|403)\b/.test(lastError)) hint=aiDirect()
+      ? ' — check the Gemini key is valid and the Generative Language API is enabled in Google AI Studio.'
+      : ' — the proxy rejected the request (key/token/origin). See AI-SETUP.md.';
+    else if(/\b429\b/.test(lastError)) hint=' — rate/quota limit hit; wait a moment or use a key with quota.';
+    setStatus('AI counting failed (via '+via+') — '+(lastError||'unknown error')+hint); return;
+  }
 
   // de-duplicate across tile overlaps, then assemble the same result shape the local engine produces
   const minD = mode==='polybag'?8:18;
