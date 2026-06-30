@@ -10,7 +10,7 @@ and you never type it in.
 ```
 React app (Vite)                Supabase
 ─────────────────               ─────────────────────────────
- upload GeoTIFF/JPG/PNG  ──►  Edge Function `count`  ──►  Google Gemini
+ upload GeoTIFF/JPG/PNG  ──►  Edge Function `dia-count` ──►  Google Gemini
  tile + annotate                holds GEMINI_API_KEY        vision model
  sign-in (email link)           verify_jwt = true
 ```
@@ -58,8 +58,8 @@ src/
     geo.js               KML parse, reproject, clip-to-boundary
     downloads.js         report / PNG / CSV / GeoJSON exports
 supabase/
-  config.toml            functions.count → verify_jwt = true
-  functions/count/       the Edge Function that holds GEMINI_API_KEY
+  config.toml            functions.dia-count → verify_jwt = true
+  functions/dia-count/       the Edge Function that holds GEMINI_API_KEY
 legacy/standalone.html   the original single-file app (reference / offline)
 proxy/                   old Cloudflare / val.town proxies (alternatives)
 ```

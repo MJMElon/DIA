@@ -2,7 +2,7 @@
 #   supabase link --project-ref <your-ref>
 project_id = "dia"
 
-[functions.count]
+[functions.dia-count]
 # verify_jwt = true means the platform rejects calls without a valid signed-in
 # user token. This is what stops strangers from spending your Gemini quota.
 verify_jwt = true

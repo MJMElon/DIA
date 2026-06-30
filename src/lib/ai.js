@@ -1,5 +1,5 @@
 /* AI counting engine — tiles the working image and asks the Supabase Edge
-   Function `count` to count each tile, then de-duplicates across overlaps.
+   Function `dia-count` to count each tile, then de-duplicates across overlaps.
 
    The browser NEVER sees the Gemini key: supabase.functions.invoke attaches the
    signed-in user's JWT, the Edge Function verifies it and calls Gemini with the
@@ -10,7 +10,7 @@ import { clipToBoundary, pointInPolys } from './geo'
 
 // POST one tile (base64 jpeg) to the Edge Function. Returns {count, points:[{x,y}]}.
 async function countTile(imageB64, mode) {
-  const { data, error } = await supabase.functions.invoke('count', { body: { image: imageB64, mode } })
+  const { data, error } = await supabase.functions.invoke('dia-count', { body: { image: imageB64, mode } })
   if (error) {
     // surface the function's JSON error body when present (status + detail)
     let detail = error.message || String(error)

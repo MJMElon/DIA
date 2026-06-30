@@ -7,6 +7,7 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
 // auth + RLS allow). The Gemini key is NOT here — it lives server-side in the
 // `count` Edge Function as a secret. If the envs are missing we still create a
 // client so the app renders a helpful "not configured" message.
+// (The Gemini key lives only in the `dia-count` Edge Function as a secret.)
 export const supabaseReady = Boolean(url && anon)
 export const supabase = supabaseReady
   ? createClient(url, anon)

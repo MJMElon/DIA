@@ -44,7 +44,7 @@ supabase secrets set GEMINI_MODEL=gemini-2.5-flash
 supabase secrets set ALLOWED_ORIGIN=https://YOUR-USERNAME.github.io
 
 # deploy the counting function
-supabase functions deploy count
+supabase functions deploy dia-count
 ```
 
 `supabase/config.toml` already sets `verify_jwt = true` for the function, so it

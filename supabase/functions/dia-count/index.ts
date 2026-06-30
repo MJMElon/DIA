@@ -1,10 +1,14 @@
 // DIA counting Edge Function (Supabase / Deno).
 //
 // Holds the Google Gemini API key server-side so it is NEVER shipped to the
-// browser. The React app calls this via supabase.functions.invoke('count', ...),
+// browser. The React app calls this via supabase.functions.invoke('dia-count', ...),
 // which attaches the signed-in user's JWT. With verify_jwt enabled (see
 // supabase/config.toml) the platform rejects anonymous callers, so only your
 // authenticated users can spend your Gemini quota.
+//
+// The function is named `dia-count` (namespaced) so it won't clash with other
+// modules in a shared Supabase project. Note: secrets are PROJECT-WIDE, so
+// GEMINI_API_KEY is visible to every function in this project.
 //
 // Set the secret once:  supabase secrets set GEMINI_API_KEY=AIza...
 // Optional:             supabase secrets set GEMINI_MODEL=gemini-2.5-flash
