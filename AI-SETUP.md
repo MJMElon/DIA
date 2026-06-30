@@ -30,6 +30,19 @@ who find your URL can't spend your Gemini quota.
 
 ## 3. Deploy the Edge Function with the key as a secret
 
+### Option A — Supabase dashboard (no CLI)
+
+1. **Store the key.** Dashboard → **Edge Functions → Secrets** → **Add new secret**:
+   `GEMINI_API_KEY` = your `AIza...` key. (Optional: `GEMINI_MODEL`, `ALLOWED_ORIGIN`.)
+   Note: secrets are **project-wide** — every function in this project can read them.
+2. **Create the function.** Dashboard → **Edge Functions → Create a function**
+   (Via editor). Name it exactly **`dia-count`**. Delete the starter code and paste
+   the full contents of `supabase/functions/dia-count/index.ts` from this repo. **Deploy**.
+3. **Enforce auth.** Open the `dia-count` function → settings → make sure
+   **Verify JWT** is **ON** (the `config.toml` setting only applies to CLI deploys).
+
+### Option B — Supabase CLI
+
 Install the Supabase CLI (<https://supabase.com/docs/guides/cli>), then:
 
 ```bash
